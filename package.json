@@ -11,6 +11,9 @@
     "build": "turbo run build && tsup src/main.ts --format esm --dts",
     "build:migration-index": "tsx scripts/build-migration-index.ts",
     "start": "node dist/main.js",
+    "electron:tsc": "tsc -p electron/tsconfig.json",
+    "electron:dev": "pnpm build && pnpm electron:tsc && electron dist/electron/main.js",
+    "electron:pack": "pnpm build && pnpm electron:tsc && electron-builder --dir",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:bbProvider": "vitest run --config vitest.bbProvider.config.ts",
@@ -61,7 +64,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "node-pty"
+      "node-pty",
+      "electron"
     ],
     "overrides": {
       "@alpacahq/alpaca-trade-api>axios": "^0.31.1",
@@ -85,6 +89,8 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.5",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
     "jsdom": "^29.0.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",

@@ -86,6 +86,7 @@ export function UrlAdopter() {
         <Route path="/scheduler" element={<Navigate to="/automation/cron" replace />} />
         <Route path="/ai-provider" element={<Navigate to="/settings/ai-provider" replace />} />
         <Route path="/trading" element={<Navigate to="/settings/trading" replace />} />
+        <Route path="/trading-accounts" element={<Navigate to="/settings/trading" replace />} />
         <Route path="/connectors" element={<Navigate to="/settings/connectors" replace />} />
         <Route path="/market-data" element={<Navigate to="/settings/market-data" replace />} />
         <Route path="/news-collector" element={<Navigate to="/settings/news-collector" replace />} />

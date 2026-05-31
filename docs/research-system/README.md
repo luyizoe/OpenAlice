@@ -135,7 +135,7 @@ workspace/{sector-name}/
 ├── AGENTS.md              ← 人格定义 + 职责范围（注入给 claude/codex）
 ├── coverage/
 │   ├── universe.yaml      ← 覆盖股票清单 + 当前评级
-│   ├── {stock_code}.md    ← 每只股票的当前认知状态（活的文件）
+│   ├── {stock_code}.md    ← 每只股票的当前认知状态（两层结构，见下）
 │   └── sector_view.md     ← 对整个板块的当前判断
 ├── inbox/
 │   └── {YYYY-MM-DD}/      ← 今天路由过来的相关文档
@@ -145,21 +145,27 @@ workspace/{sector-name}/
     └── deltas.md          ← 每日 delta，append-only
 ```
 
-### 每只股票的知识文件结构（`{stock_code}.md`）
+### 每只股票的知识文件结构：Compiled Truth + Timeline 两层模式
+
+> 来自 gbrain 调研（garrytan/gbrain）：上层重写（当前状态）+ 下层追加（证据日志）。
+> 这解决了"记忆要么过时、要么无限膨胀"的经典问题。
 
 ```markdown
-# 贵州茅台 (600519) — 最后更新 2026-05-31
+# 贵州茅台 (600519)
+
+<!-- ★ COMPILED TRUTH — 有新信息就整体重写这一区域 ★ -->
 
 ## 核心判断
 - 评级：买入
 - 核心逻辑：高端白酒消费韧性 + 渠道库存改善进行时
+- 最后综合：2026-05-31
 
-## 关键变量追踪
-| 变量 | 上次判断 | 最新数据 | 更新日期 |
-|------|----------|----------|----------|
-| Q2 动销 | 平稳 | 强于预期 | 2026-05-31 |
-| 渠道库存 | 偏高 | 改善中 | 2026-05-28 |
-| 批价（飞天） | 1450 | 1480 | 2026-05-30 |
+## 关键变量追踪（当前状态）
+| 变量 | 当前状态 | 判断方向 |
+|------|----------|----------|
+| Q2 动销 | 强于预期 | 正面 |
+| 渠道库存 | 改善中 | 正面 |
+| 批价（飞天） | 1480 | 中性 |
 
 ## 近期催化剂
 - 中报窗口：2026-08
@@ -167,9 +173,19 @@ workspace/{sector-name}/
 ## 风险因素
 - 宏观消费降级
 - 政务消费监管趋严
+
+---
+<!-- ★ TIMELINE — 只追加，永不删除，最新在前 ★ -->
+
+- 2026-05-31 | 茅台电话会议 | 管理层确认Q2旺季动销超预期，批价稳定
+- 2026-05-28 | 渠道调研报告（国信证券） | 飞天批价1480，环比+2%，库存水平改善
+- 2026-05-20 | 卖方点评（中信证券） | 维持买入，目标价1850
 ```
 
-**设计原理**：有了这个结构，"今天有没有变化"就是表格的 diff，而不是两段自由文本的语义比较——精确且可追溯。
+**关键设计原则**：
+- Agent 更新时：重写横线以上的 Compiled Truth，在 Timeline 追加新条目
+- 精准 delta 检测：比较前后两次的 Compiled Truth 表格 diff
+- 证据可追溯：所有判断都能在 Timeline 找到来源
 
 ### Agent 每日执行流程（注入到 AGENTS.md 的指令）
 
@@ -436,21 +452,138 @@ const synthesis = await pipeline(
 
 ---
 
-## 十、开发路线图（待细化）
+## 十、Dream Cycle（夜间自维护）
+
+> 来自 gbrain 调研：日常摄入只是系统的一半，夜间自修复才是让系统长期可用的关键。
+
+每晚在 Coverage Agent 完成后，额外运行一个维护周期：
+
+```
+每日 Coverage Agent（摄入新内容）
+        +
+Dream Cycle 每晚 02:00（自我修复）
+```
+
+### Dream Cycle 阶段
+
+```
+Phase 1: 修复坏掉的引用和链接
+  → 检查 coverage/*.md 里提到的公司/产品，确保都有对应页面
+
+Phase 2: 充实薄知识
+  → 某公司只被提到 1 次（stub）→ 自动触发 web enrichment
+  → 被提到 3+ 次 → 完整分析
+
+Phase 3: 重新计算产业链关系强度
+  → 遍历 dynamics.json，更新 decay_counter
+  → 将 strength < 0.2 的边标记为 dormant
+
+Phase 4: 跨 session 模式检测
+  → "最近3周锂价持续下跌" 这类跨日的趋势
+  → 合并重复的 timeline 条目
+
+Phase 5: Gap Analysis 生成
+  → 哪个板块/环节本周没有新材料
+  → 哪些知识文件超过 7 天未更新
+  → 推送 Gap Report 到 Inbox
+```
+
+**Gap Analysis 示例输出**：
+```
+今日缺口报告：
+- 上游锂资源：最后更新 5 天前，近期无相关材料进入
+- 半导体设备：本周0篇卖方点评，关注度低
+- 茅台渠道数据：已7天未更新，建议主动补充
+```
+
+---
+
+## 十一、Signal Board 存储升级（Postgres 方案）
+
+> 来自 gbrain 调研：Postgres + pgvector 一个实例可以搞定向量搜索 + 关键词搜索 + 图谱遍历，不需要专用图数据库或向量数据库。
+
+### 推荐存储方案
+
+用 **PGLite**（WASM 嵌入式 Postgres，2 秒启动，零配置）替代 JSONL 文件：
+
+```sql
+-- 产业链节点（公司/板块/商品）
+CREATE TABLE supply_chain_nodes (
+  slug TEXT PRIMARY KEY,          -- e.g. "lithium_carbonate"
+  name TEXT,
+  node_type TEXT,                  -- upstream/midstream/downstream
+  compiled_truth TEXT,             -- 当前综合状态
+  timeline TEXT,                   -- 追加式证据日志
+  emotional_weight FLOAT,          -- 显著度 0..1
+  updated_at TIMESTAMP
+);
+
+-- 产业链边（关系）
+CREATE TABLE supply_chain_edges (
+  id TEXT PRIMARY KEY,
+  from_slug TEXT,
+  to_slug TEXT,
+  edge_type TEXT,                  -- cost_input/volume_demand/etc
+  strength FLOAT,                  -- 0..1
+  decay_counter INT DEFAULT 0,
+  status TEXT DEFAULT 'active',    -- active/dormant
+  last_confirmed DATE,
+  latest_note TEXT
+);
+
+-- 每日信号
+CREATE TABLE daily_signals (
+  id SERIAL PRIMARY KEY,
+  sector TEXT,
+  signal_date DATE,
+  signal_type TEXT,
+  direction TEXT,
+  magnitude TEXT,
+  detail TEXT,
+  propagation_to TEXT[],
+  confidence TEXT,
+  sources TEXT[],
+  embedding vector(1536)           -- 向量化，支持语义搜索历史信号
+);
+```
+
+**混合检索**（参考 gbrain 的 RRF Fusion）：
+```sql
+-- 向量搜索：找语义相关的历史信号
+SELECT * FROM daily_signals
+ORDER BY embedding <=> $query_vector LIMIT 20;
+
+-- 关键词搜索：精确匹配板块/公司
+SELECT * FROM daily_signals
+WHERE to_tsvector(detail) @@ to_tsquery('锂 & 电池');
+
+-- 图谱遍历：产业链传导
+WITH RECURSIVE chain AS (
+  SELECT * FROM supply_chain_edges WHERE from_slug = 'lithium_carbonate'
+  UNION ALL
+  SELECT e.* FROM supply_chain_edges e JOIN chain c ON e.from_slug = c.to_slug
+)
+SELECT * FROM chain;
+```
+
+---
+
+## 十二、开发路线图（待细化）
 
 ### Phase 1：单板块 MVP
 - [ ] 实现文档路由（规则 + 关键词匹配）
 - [ ] 建立第一个覆盖组 Workspace（选一个最熟悉的板块）
 - [ ] 初始化 `structure.yaml`（AI 生成草稿，人工审核）
-- [ ] 实现基本版 Signal Board MCP Server
-- [ ] 手动跑第一次 Coverage Agent
+- [ ] 实现基本版 Signal Board MCP Server（PGLite 后端）
+- [ ] 手动跑第一次 Coverage Agent（验证 Compiled Truth + Timeline 格式）
 
 ### Phase 2：多板块并行
 - [ ] 扩展到 3-5 个覆盖组
 - [ ] 用 Dynamic Workflows 编排并行
-- [ ] 实现 Synthesizer Agent
+- [ ] 实现 Synthesizer Agent + Gap Analysis 输出
 
-### Phase 3：动态学习
+### Phase 3：动态学习 + Dream Cycle
+- [ ] 实现 Dream Cycle（夜间维护周期）
 - [ ] 实现 `dynamics.json` 自动更新
 - [ ] 实现置信度衰减机制
 - [ ] 实现 `proposals.md` 提案流程
@@ -460,16 +593,40 @@ const synthesis = await pipeline(
 - [ ] 模型分层优化（成本控制）
 - [ ] 对抗性验证集成
 - [ ] 文档摄入接口（对接实际文档来源）
+- [ ] 混合搜索（向量 + 关键词 + RRF）的信号检索
 
 ---
 
-## 附录：关键设计决策记录
+## 附录 A：关键设计决策记录
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
 | 路由方式 | 规则优先，AI 兜底 | 成本控制，避免 N 个 Agent 各自读 230 篇 |
 | 编排框架 | Claude Dynamic Workflows | 内置 fan-out/fan-in + 对抗性验证，无需自建 |
-| 持久化接口 | 本地 MCP Server | 所有 Agent 即插即用，接口统一 |
+| 持久化接口 | 本地 MCP Server（PGLite 后端） | 所有 Agent 即插即用，向量+关键词+图谱三合一 |
 | 产业链图更新 | 两层（结构人工 + 权重 AI） | 防止 AI 自主引入错误关系 |
 | Workspace 设计 | 长寿命持久化 | 日积月累的认知不应每次重建 |
-| 信号格式 | 结构化 JSON | 机器可读，才能做真正的跨板块分析 |
+| 信号格式 | 结构化 JSON + Postgres 存储 | 机器可读 + 向量搜索历史信号 |
+| 知识文件格式 | Compiled Truth + Timeline 两层 | 上层重写（当前状态），下层追加（证据日志） |
+| 夜间维护 | Dream Cycle | 日常摄入 + 夜间自修复，才能长期可用 |
+
+---
+
+## 附录 B：参考项目调研
+
+### garrytan/gbrain（2026-05-31 调研）
+
+**项目**：YC CEO Garry Tan 的个人 AI 知识大脑系统。20K stars，MIT 开源。生产规模：146K 页面，66 个 cron 任务。
+
+**我们采用的设计**：
+1. **Compiled Truth + Timeline 两层页面模式**：知识文件分割为「当前状态（重写）」和「证据时间线（追加）」两层
+2. **Dream Cycle 夜间维护**：不只是摄入新内容，还主动修复引用、充实薄知识、检测跨日模式
+3. **Postgres/PGLite 存储**：不需要专用图数据库或向量数据库，一个 Postgres 搞定所有需求
+4. **Gap Analysis**：Synthesizer 输出除"已知"外还明确报告"缺口"
+
+**我们不采用的部分**：
+- Markdown-in-git 作为 source of truth（我们的知识是结构化的）
+- OAuth 2.1（个人使用不需要）
+- 代码分析功能（不在我们场景内）
+
+**官方链接**：https://github.com/garrytan/gbrain

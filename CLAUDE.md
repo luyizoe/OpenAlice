@@ -1,5 +1,29 @@
 # OpenAlice
 
+---
+
+## ⚠️ 这是一个 Fork — 先看这里
+
+**用户（luyizoe）在此基础上构建 AI 自动化金融研究系统。**
+
+真正要构建的东西的完整设计文档在：
+**`docs/research-system/README.md`**（必读，开始任何工作前先读完）
+
+**简要背景**：每天摄入 ~230 篇研报/电话会纪要，多个并行 Coverage Agent 处理各自板块材料，输出今日 delta 报告 + 跨板块产业链传导信号 + Gap Report。
+
+**借鉴来源**：
+- `TraderAlice/OpenAlice` — Workspace bootstrap、MCP 注入、inbox_push（直接用）
+- `garrytan/gbrain` — Compiled Truth+Timeline、Dream Cycle、PGLite 存储
+- Claude Dynamic Workflows — 并行编排、对抗性验证
+
+**OpenAlice 原有代码使用策略**：
+- ✅ 直接用：`src/workspaces/`、`src/tool/inbox-push.ts`、`src/core/pump.ts`、`src/server/mcp.ts`
+- ❌ 跳过：`src/ai-providers/`、`src/core/agent-center.ts`、`src/connectors/telegram/`
+
+**当前状态**：设计文档完整，尚无实现代码。下一步：Phase 1 单板块 MVP。
+
+---
+
 AI trading agent. From a code-writing perspective, the Alice process is two
 things: a **Workspace launcher** (PTY sessions running native agent CLIs —
 `claude`, `codex`, `shell`; capability extension ships as workspace templates
